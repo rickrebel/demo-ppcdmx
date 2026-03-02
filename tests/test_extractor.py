@@ -13,15 +13,20 @@ import pytest
 # --------------------------------------------------------------------------- #
 
 MOCK_API_RESPONSE = {
-    "columnas": ["Proyecto", "Colonia", "Alcaldía", "Monto", "Votos"],
-    "filas": [
-        ["Luminarias LED calle Benito Juárez", "Tepito", "Cuauhtémoc", "$350,000", "1,240"],
-        ["Rehabilitación parque infantil", "Tepito", "Cuauhtémoc", "$280,000", "980"],
-        ["Pavimentación calle 5 de Febrero", "Morelos", "Cuauhtémoc", "$420,000", "1,567"],
+    "columnas": [
+        "Colonia o Pueblo Originario", "Proyecto", "Descripción",
+        "Avance (%)", "Aprobado $", "Modificado $", "Ejercido $", "Par. %",
     ],
-    "alcaldia": "Cuauhtémoc",
-    "colonia": "Tepito",
-    "anio": "2024",
+    "filas": [
+        ["Tepito", "OBRAS Y SERVICIOS", "Pintura de fachada",
+         "100%", "715,861.00", "715,861.00", "715,861.00", "100%"],
+        ["Morelos", "OBRAS Y SERVICIOS", "Banqueta segura",
+         "100%", "715,861.00", "715,861.00", "715,861.00", "100%"],
+    ],
+    "alcaldia": "CUAUHTÉMOC",
+    "unidad_responsable": "02 CD 06 CUAUHTÉMOC",
+    "anio": "2015",
+    "pagina": "104",
     "notas": None,
 }
 
@@ -74,7 +79,7 @@ class TestExtraction:
         df = mock_extractor.extract(str(img_path))
 
         assert isinstance(df, pd.DataFrame)
-        assert len(df) == 3
+        assert len(df) == 2
         assert list(df.columns) == MOCK_API_RESPONSE["columnas"]
 
     def test_extract_metadata_attached(self, mock_extractor, tmp_path):
@@ -86,9 +91,10 @@ class TestExtraction:
 
         df = mock_extractor.extract(str(img_path))
 
-        assert df.attrs["alcaldia"] == "Cuauhtémoc"
-        assert df.attrs["colonia"] == "Tepito"
-        assert df.attrs["anio"] == "2024"
+        assert df.attrs["alcaldia"] == "CUAUHTÉMOC"
+        assert df.attrs["unidad_responsable"] == "02 CD 06 CUAUHTÉMOC"
+        assert df.attrs["anio"] == "2015"
+        assert df.attrs["pagina"] == "104"
 
     def test_extract_data_values(self, mock_extractor, tmp_path):
         """Los datos extraídos deben coincidir con la respuesta simulada."""
@@ -99,8 +105,8 @@ class TestExtraction:
 
         df = mock_extractor.extract(str(img_path))
 
-        assert df.iloc[0]["Proyecto"] == "Luminarias LED calle Benito Juárez"
-        assert df.iloc[0]["Monto"] == "$350,000"
+        assert df.iloc[0]["Colonia o Pueblo Originario"] == "Tepito"
+        assert df.iloc[0]["Aprobado $"] == "715,861.00"
 
 
 # --------------------------------------------------------------------------- #

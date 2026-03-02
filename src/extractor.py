@@ -20,36 +20,49 @@ from PIL import Image
 load_dotenv()
 
 # Prompt base para la extracción
-EXTRACTION_PROMPT = """Analiza la imagen de esta tabla del Presupuesto Participativo de la Ciudad de México.
+EXTRACTION_PROMPT = """Analiza la imagen de esta página del reporte oficial
+"PPD Presupuesto Participativo para las Delegaciones" de la Ciudad de México
+(Cuenta Pública CDMX).
 
-Extrae TODOS los datos que veas en la tabla usando la herramienta extract_table.
+El documento tiene:
+- Encabezado: logo CDMX + "CUENTA PÚBLICA DE LA CIUDAD DE MÉXICO" + año (si visible)
+- Título: "PPD PRESUPUESTO PARTICIPATIVO PARA LAS DELEGACIONES"
+- Línea: "Unidad Responsable del Gasto: [código] [nombre delegación/alcaldía]"
+- Tabla con columnas: COLONIA O PUEBLO ORIGINARIO, PROYECTO, DESCRIPCIÓN,
+  AVANCE DEL PROYECTO (%), y columnas de presupuesto (APROBADO, MODIFICADO,
+  EJERCIDO, PAR. %)
+- Número de página en la esquina inferior derecha
 
-Reglas importantes:
-- Si una celda está vacía, usa null.
-- Preserva los números con el formato original (no conviertas montos).
-- Si hay celdas combinadas, repite el valor en cada fila que corresponda.
+Extrae todos los datos usando la herramienta extract_table.
+
+Reglas:
+- Celdas vacías → null. Valores numéricos cero → "0" o "0.00".
+- Preserva números con su formato original (no conviertas ni redondees montos).
+- Celdas combinadas: repite el valor en cada fila correspondiente.
+- El año aparece en el encabezado junto al logo (ej. "2015").
+- El número de página está en la esquina inferior derecha.
 """
 
 # Schema de la herramienta para extracción estructurada (tool_use)
 EXTRACT_TOOL = {
     "name": "extract_table",
     "description": (
-        "Extrae los datos estructurados de una tabla del Presupuesto Participativo CDMX "
-        "a partir de una imagen. Incluye encabezados, filas de datos y metadatos contextuales."
+        "Extrae una página del reporte PPD Presupuesto Participativo CDMX. "
+        "Captura la tabla completa y los metadatos del encabezado del documento."
     ),
     "input_schema": {
         "type": "object",
         "properties": {
             "columnas": {
                 "type": "array",
-                "description": "Lista de nombres de columnas tal como aparecen en la tabla.",
+                "description": "Nombres de columnas tal como aparecen en el encabezado de la tabla.",
                 "items": {"type": "string"},
             },
             "filas": {
                 "type": "array",
                 "description": (
-                    "Lista de filas de datos. Cada fila es un array de valores "
-                    "en el mismo orden que 'columnas'. Usa null para celdas vacías."
+                    "Filas de datos. Cada fila es un array en el mismo orden que 'columnas'. "
+                    "Usa null para celdas vacías. Repite valores de celdas combinadas."
                 ),
                 "items": {
                     "type": "array",
@@ -58,22 +71,32 @@ EXTRACT_TOOL = {
             },
             "alcaldia": {
                 "type": ["string", "null"],
-                "description": "Nombre de la alcaldía si aparece en la imagen, null si no.",
+                "description": (
+                    "Nombre de la delegación/alcaldía extraído de la línea "
+                    "'Unidad Responsable del Gasto'. Ej: 'IZTAPALAPA', 'TLÁHUAC'."
+                ),
             },
-            "colonia": {
+            "unidad_responsable": {
                 "type": ["string", "null"],
-                "description": "Nombre de la colonia si aparece en la imagen, null si no.",
+                "description": (
+                    "Texto completo de 'Unidad Responsable del Gasto: …', "
+                    "incluyendo el código. Ej: '02 CD 24 IZTAPALAPA'."
+                ),
             },
             "anio": {
                 "type": ["string", "null"],
-                "description": "Año del presupuesto participativo si aparece, null si no.",
+                "description": "Año visible en el encabezado del documento. Ej: '2015', '2018'.",
+            },
+            "pagina": {
+                "type": ["string", "null"],
+                "description": "Número de página en la esquina inferior derecha. Ej: '104', '059'.",
             },
             "notas": {
                 "type": ["string", "null"],
-                "description": "Texto relevante fuera de la tabla estructurada, null si no hay.",
+                "description": "Texto relevante del documento fuera de la tabla y los campos anteriores.",
             },
         },
-        "required": ["columnas", "filas", "alcaldia", "colonia", "anio", "notas"],
+        "required": ["columnas", "filas", "alcaldia", "unidad_responsable", "anio", "pagina", "notas"],
     },
 }
 
@@ -195,11 +218,12 @@ class TableExtractor:
         df = pd.DataFrame(filas, columns=columnas if columnas else None)
 
         # Adjuntar metadatos como atributos del DataFrame
-        df.attrs["alcaldia"] = parsed.get("alcaldia")
-        df.attrs["colonia"] = parsed.get("colonia")
-        df.attrs["anio"] = parsed.get("anio")
-        df.attrs["notas"] = parsed.get("notas")
-        df.attrs["imagen_origen"] = str(Path(image_path).name)
+        df.attrs["alcaldia"]            = parsed.get("alcaldia")
+        df.attrs["unidad_responsable"]  = parsed.get("unidad_responsable")
+        df.attrs["anio"]                = parsed.get("anio")
+        df.attrs["pagina"]              = parsed.get("pagina")
+        df.attrs["notas"]               = parsed.get("notas")
+        df.attrs["imagen_origen"]       = str(Path(image_path).name)
 
         return df
 
@@ -256,8 +280,8 @@ class TableExtractor:
                 df = self.extract(str(img_path))
                 df["_imagen"] = img_path.name
                 df["_alcaldia"] = df.attrs.get("alcaldia")
-                df["_colonia"] = df.attrs.get("colonia")
                 df["_anio"] = df.attrs.get("anio")
+                df["_pagina"] = df.attrs.get("pagina")
 
                 csv_out = output_dir / img_path.with_suffix(".csv").name
                 self.save_csv(df, str(csv_out))
@@ -291,7 +315,7 @@ def main():
         print("\n--- Datos extraídos ---")
         print(df.to_string())
         print("\n--- Metadatos ---")
-        for key in ("alcaldia", "colonia", "anio", "notas"):
+        for key in ("alcaldia", "unidad_responsable", "anio", "pagina", "notas"):
             print(f"  {key}: {df.attrs.get(key)}")
 
         output = Path("data/processed") / target.with_suffix(".csv").name
