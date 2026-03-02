@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Entorno
+.env
+.env.*
+!.env.example
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_tmp
+
+# Datos procesados (no versionar salidas)
+data/processed/*
+!data/processed/.gitkeep
+
+# Imágenes de tablas (pueden ser grandes; versionar solo si se desea)
+# images/examples/*.jpg
+# images/examples/*.png
+# images/examples/*.webp
+
+# Temporales de extractor
+*.tmp.jpg
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+
+# macOS
+.DS_Store
