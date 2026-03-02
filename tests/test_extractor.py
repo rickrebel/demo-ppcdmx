@@ -1,6 +1,5 @@
 """Tests básicos del extractor de tablas PP CDMX."""
 
-import json
 import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -49,7 +48,10 @@ def mock_extractor():
         # Mock del cliente Anthropic
         mock_client = MagicMock()
         mock_message = MagicMock()
-        mock_message.content = [MagicMock(text=json.dumps(MOCK_API_RESPONSE))]
+        mock_tool_block = MagicMock()
+        mock_tool_block.type = "tool_use"          # Debe ser string literal, no MagicMock
+        mock_tool_block.input = MOCK_API_RESPONSE  # Dict directo, igual que tool_block.input real
+        mock_message.content = [mock_tool_block]
         mock_client.messages.create.return_value = mock_message
         extractor.client = mock_client
 

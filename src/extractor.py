@@ -8,7 +8,6 @@ de fotografías de tablas.
 import base64
 import csv
 import io
-import json
 import os
 import sys
 from pathlib import Path
@@ -23,26 +22,60 @@ load_dotenv()
 # Prompt base para la extracción
 EXTRACTION_PROMPT = """Analiza la imagen de esta tabla del Presupuesto Participativo de la Ciudad de México.
 
-Extrae TODOS los datos que veas en la tabla y devuélvelos como un objeto JSON con esta estructura:
-
-{
-  "columnas": ["nombre de columna 1", "nombre de columna 2", ...],
-  "filas": [
-    ["valor1", "valor2", ...],
-    ...
-  ],
-  "alcaldia": "nombre de la alcaldía si aparece en la imagen o null",
-  "colonia": "nombre de la colonia si aparece en la imagen o null",
-  "anio": "año del presupuesto participativo si aparece o null",
-  "notas": "cualquier texto relevante que no encaje en la tabla, o null"
-}
+Extrae TODOS los datos que veas en la tabla usando la herramienta extract_table.
 
 Reglas importantes:
 - Si una celda está vacía, usa null.
 - Preserva los números con el formato original (no conviertas montos).
 - Si hay celdas combinadas, repite el valor en cada fila que corresponda.
-- Responde ÚNICAMENTE con el JSON, sin explicaciones adicionales.
 """
+
+# Schema de la herramienta para extracción estructurada (tool_use)
+EXTRACT_TOOL = {
+    "name": "extract_table",
+    "description": (
+        "Extrae los datos estructurados de una tabla del Presupuesto Participativo CDMX "
+        "a partir de una imagen. Incluye encabezados, filas de datos y metadatos contextuales."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "columnas": {
+                "type": "array",
+                "description": "Lista de nombres de columnas tal como aparecen en la tabla.",
+                "items": {"type": "string"},
+            },
+            "filas": {
+                "type": "array",
+                "description": (
+                    "Lista de filas de datos. Cada fila es un array de valores "
+                    "en el mismo orden que 'columnas'. Usa null para celdas vacías."
+                ),
+                "items": {
+                    "type": "array",
+                    "items": {"type": ["string", "null"]},
+                },
+            },
+            "alcaldia": {
+                "type": ["string", "null"],
+                "description": "Nombre de la alcaldía si aparece en la imagen, null si no.",
+            },
+            "colonia": {
+                "type": ["string", "null"],
+                "description": "Nombre de la colonia si aparece en la imagen, null si no.",
+            },
+            "anio": {
+                "type": ["string", "null"],
+                "description": "Año del presupuesto participativo si aparece, null si no.",
+            },
+            "notas": {
+                "type": ["string", "null"],
+                "description": "Texto relevante fuera de la tabla estructurada, null si no hay.",
+            },
+        },
+        "required": ["columnas", "filas", "alcaldia", "colonia", "anio", "notas"],
+    },
+}
 
 
 def _image_to_base64(image_path: str) -> tuple[str, str]:
@@ -128,6 +161,8 @@ class TableExtractor:
         response = self.client.messages.create(
             model=self.model,
             max_tokens=4096,
+            tools=[EXTRACT_TOOL],
+            tool_choice={"type": "tool", "name": "extract_table"},
             messages=[
                 {
                     "role": "user",
@@ -146,14 +181,13 @@ class TableExtractor:
             ],
         )
 
-        raw_text = response.content[0].text.strip()
-
-        # Limpiar posibles bloques de código markdown
-        if raw_text.startswith("```"):
-            raw_text = raw_text.split("\n", 1)[1]
-            raw_text = raw_text.rsplit("```", 1)[0]
-
-        parsed = json.loads(raw_text)
+        tool_block = next((b for b in response.content if b.type == "tool_use"), None)
+        if tool_block is None:
+            raise ValueError(
+                f"La API no devolvió un bloque tool_use. "
+                f"stop_reason={response.stop_reason!r}, content={response.content!r}"
+            )
+        parsed = tool_block.input  # Ya es un dict; no requiere json.loads()
 
         columnas = parsed.get("columnas", [])
         filas = parsed.get("filas", [])
